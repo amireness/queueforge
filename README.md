@@ -160,6 +160,36 @@ For this workload, adding workers reduced throughput. The tasks are small, so wo
 
 These results come from one benchmark run. The benchmark uses threads, not separate worker processes, and does not represent production capacity.
 
+
+## Example: Running Data Pipeline
+
+The `examples/data_pipeline.py` script submits three dependent jobs:
+
+1. `load_runs` — reads running activities from a CSV file.
+2. `analyze_runs` — calculates total distance, duration, and average pace.
+3. `generate_report` — produces a summary of the training data.
+
+Each job waits until its prerequisite completes. The tasks
+read the same CSV independently rather than passing results
+between jobs.
+
+Run the Flask API and worker in separate terminals, then:
+
+```bash
+python examples/data_pipeline.py
+```
+
+Example output:
+
+```text
+Load data: Job 2
+Analyze data: Job 3
+Generate report: Job 4
+```
+
+The final job returns a summary of 34 km, 202 minutes,
+and an average pace of 5.94 min/km using the sample data.
+
 ## Limitations
 
 - Designed for local execution, not multi-host deployment.

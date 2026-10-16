@@ -1,5 +1,9 @@
+
 """Allowed background tasks. No user-supplied code is executed."""
+
+import csv
 import time
+from pathlib import Path
 
 
 def add_numbers(payload):
@@ -27,4 +31,55 @@ def pause(payload):
     return {"slept_seconds": seconds}
 
 
-TASKS = {"add_numbers": add_numbers, "uppercase": uppercase, "pause": pause}
+def load_runs(payload):
+    path = Path("data") / "runs.csv"
+
+    with path.open(newline="", encoding="utf-8") as file:
+        runs = list(csv.DictReader(file))
+
+    return {"count": len(runs)}
+
+
+def analyze_runs(payload):
+    path = Path("data") / "runs.csv"
+
+    with path.open(newline="", encoding="utf-8") as file:
+        runs = list(csv.DictReader(file))
+
+    if not runs:
+        raise ValueError("No runs found")
+
+    distance = sum(float(run["distance_km"]) for run in runs)
+    duration = sum(float(run["duration_min"]) for run in runs)
+
+    if distance <= 0:
+        raise ValueError("Total distance must be positive")
+
+    return {
+        "total_distance_km": round(distance, 2),
+        "total_duration_min": round(duration, 2),
+        "average_pace_min_per_km": round(duration / distance, 2)
+    }
+
+
+def generate_report(payload):
+    results = analyze_runs(payload)
+
+    return {
+        "report": (
+            f"Total distance: {results['total_distance_km']} km, "
+            f"total time: {results['total_duration_min']} minutes, "
+            f"average pace: {results['average_pace_min_per_km']} min/km"
+        )
+    }
+
+
+TASKS = {
+    "add_numbers": add_numbers,
+    "uppercase": uppercase,
+    "pause": pause,
+    "load_runs": load_runs,
+    "analyze_runs": analyze_runs,
+    "generate_report": generate_report,
+}
+
