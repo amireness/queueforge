@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     available_at TEXT NOT NULL,
     worker_id TEXT,
     started_at TEXT,
+    lease_until TEXT,
     finished_at TEXT,
     result TEXT,
     error TEXT,

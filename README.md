@@ -42,11 +42,14 @@ python -m pytest -v
 - API uses JSON and separates routing, storage, scheduling, and task code.
 
 ## Important limitations
-This is a learning-focused MVP, not a production-grade distributed queue. Workers may be separate processes on the same machine, but SQLite is not a cross-host queue service. If a process crashes after claiming a job, it remains `running` and requires manual recovery. Cancellation is supported for pending jobs only. Job handlers must be idempotent before adding automatic recovery or distributed execution. The API has no authentication; use only on localhost.
+This is a learning-focused MVP, not a production-grade distributed queue. Workers may be separate processes on the same machine, but SQLite is not a cross-host queue service. Running jobs use 30-second leases, and workers requeue expired jobs until their retry limit is reached. Long-running task handlers need lease renewal/heartbeats before production use. Cancellation is supported for pending jobs only. Job handlers must be idempotent before adding automatic recovery or distributed execution. The API has no authentication; use only on localhost.
 
 ## Next iterations
-1. Add expired-job leases and a reaper process for worker crashes.
+1. Add lease renewal/heartbeats for long-running jobs.
 2. Add a dependency table and DAG validation.
 3. Add structured metrics and a small monitoring page.
 4. Benchmark throughput and compare worker counts.
 5. Move to PostgreSQL and Redis for multi-host deployment if warranted.
+
+## Worker crash recovery
+Workers claim jobs with a 30-second lease. If a worker disappears, the lease eventually expires; another worker requeues the job (or marks it failed if the retry limit was reached). Recovery is checked whenever a worker polls. This is **at-least-once** processing: a task might run more than once after a crash, so real-world task handlers must be idempotent. The included tasks finish within five seconds and do not require lease renewal.

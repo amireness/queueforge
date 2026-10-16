@@ -5,12 +5,13 @@ import socket
 import time
 import uuid
 
-from database import fail_job, finish_job, init_db
+from database import fail_job, finish_job, init_db, recover_expired_jobs
 from scheduler import next_job
 from tasks import TASKS
 
 
 def run_once(worker_id, path=None):
+    recover_expired_jobs(path)
     job = next_job(worker_id, path)
     if job is None:
         return False
