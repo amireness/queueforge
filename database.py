@@ -32,15 +32,74 @@ def init_db(path=None):
             conn.execute("ALTER TABLE jobs ADD COLUMN lease_until TEXT")
 
 
-def create_job(task_type, payload, priority=5, max_attempts=3, path=None):
+def create_job(task_type, payload, priority=5, max_attempts=3, path=None, dependencies=None):
     timestamp = now()
     with connect(path) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        dependencies = dependencies or []
+        if len(dependencies) != len(set(dependencies)):
+            raise ValueError("Duplicate dependency IDs")
+        for parent_id in dependencies:
+            if not conn.execute("SELECT 1 FROM jobs WHERE id = ?", (parent_id,)).fetchone():
+                raise ValueError(f"Dependency job {parent_id} does not exist")
         cursor = conn.execute(
             """INSERT INTO jobs (task_type, payload, priority, max_attempts, available_at, created_at)
                VALUES (?, ?, ?, ?, ?, ?)""",
             (task_type, json.dumps(payload), priority, max_attempts, timestamp, timestamp),
         )
-        return cursor.lastrowid
+        job_id = cursor.lastrowid
+        for parent_id in dependencies:
+            conn.execute("INSERT INTO job_dependencies(job_id, depends_on_id) VALUES (?, ?)",
+                         (job_id, parent_id))
+        return job_id
+
+
+def add_dependency(job_id, parent_id, path=None):
+    """Add an edge child -> prerequisite, rejecting cycles and started jobs."""
+    with connect(path) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        child = conn.execute("SELECT status, attempts FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        parent = conn.execute("SELECT id FROM jobs WHERE id = ?", (parent_id,)).fetchone()
+        if not child or not parent:
+            raise ValueError("Job or dependency does not exist")
+        if child["status"] != "pending" or child["attempts"] != 0:
+            raise ValueError("Dependencies can only be added to unstarted pending jobs")
+        if job_id == parent_id:
+            raise ValueError("Job cannot depend on itself")
+        # Traverse prerequisites of parent. Reaching child means a cycle.
+        cycle = conn.execute("""
+            WITH RECURSIVE ancestors(id) AS (
+                SELECT ? UNION SELECT d.depends_on_id
+                FROM job_dependencies d JOIN ancestors a ON d.job_id = a.id
+            ) SELECT 1 FROM ancestors WHERE id = ? LIMIT 1
+        """, (parent_id, job_id)).fetchone()
+        if cycle:
+            raise ValueError("Circular job dependency")
+        conn.execute("INSERT OR IGNORE INTO job_dependencies(job_id, depends_on_id) VALUES (?, ?)",
+                     (job_id, parent_id))
+
+
+def list_dependencies(job_id, path=None):
+    with connect(path) as conn:
+        return [r["depends_on_id"] for r in conn.execute(
+            "SELECT depends_on_id FROM job_dependencies WHERE job_id = ? ORDER BY depends_on_id", (job_id,))]
+
+
+def propagate_blocked_jobs(conn):
+    """Fail pending jobs whose prerequisites failed or were canceled."""
+    timestamp = now()
+    # Repeat because a newly failed dependent can block another downstream job.
+    while True:
+        changed = conn.execute("""
+            UPDATE jobs SET status = 'failed', finished_at = ?,
+                error = 'Prerequisite failed or canceled'
+            WHERE status = 'pending' AND EXISTS (
+                SELECT 1 FROM job_dependencies d JOIN jobs p ON p.id = d.depends_on_id
+                WHERE d.job_id = jobs.id AND p.status IN ('failed', 'canceled')
+            )
+        """, (timestamp,)).rowcount
+        if not changed:
+            break
 
 
 def get_job(job_id, path=None):
@@ -59,9 +118,14 @@ def claim_next(worker_id, path=None):
     conn = connect(path)
     try:
         conn.execute("BEGIN IMMEDIATE")
+        propagate_blocked_jobs(conn)
         row = conn.execute(
             """SELECT id FROM jobs
                WHERE status = 'pending' AND available_at <= ?
+               AND NOT EXISTS (
+                   SELECT 1 FROM job_dependencies d JOIN jobs p ON p.id = d.depends_on_id
+                   WHERE d.job_id = jobs.id AND p.status != 'completed'
+               )
                ORDER BY priority ASC, created_at ASC, id ASC LIMIT 1""",
             (now(),),
         ).fetchone()

@@ -2,7 +2,7 @@
 import json
 from flask import Flask, jsonify, request
 
-from database import cancel_job, create_job, get_job, init_db, list_jobs
+from database import cancel_job, create_job, get_job, init_db, list_jobs, list_dependencies
 from tasks import TASKS
 
 
@@ -28,6 +28,7 @@ def create_app(db_path=None):
         payload = data.get("payload", {})
         priority = data.get("priority", 5)
         max_attempts = data.get("max_attempts", 3)
+        dependencies = data.get("depends_on", [])
         if task_type not in TASKS:
             return jsonify({"error": f"task_type must be one of {list(TASKS)}"}), 400
         if not isinstance(payload, dict):
@@ -36,7 +37,12 @@ def create_app(db_path=None):
             return jsonify({"error": "priority must be an integer from 1 to 10 (1 highest)"}), 400
         if type(max_attempts) is not int or not 1 <= max_attempts <= 10:
             return jsonify({"error": "max_attempts must be an integer from 1 to 10"}), 400
-        job_id = create_job(task_type, payload, priority, max_attempts, db())
+        if not isinstance(dependencies, list) or any(type(i) is not int or i <= 0 for i in dependencies):
+            return jsonify({"error": "depends_on must be a list of positive job IDs"}), 400
+        try:
+            job_id = create_job(task_type, payload, priority, max_attempts, db(), dependencies)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         return jsonify({"job_id": job_id, "status": "pending"}), 201
 
     @app.get("/jobs")
@@ -48,7 +54,9 @@ def create_app(db_path=None):
         job = get_job(job_id, db())
         if job is None:
             return jsonify({"error": "Job not found"}), 404
-        return jsonify(display(job))
+        result = display(job)
+        result["depends_on"] = list_dependencies(job_id, db())
+        return jsonify(result)
 
     @app.post("/jobs/<int:job_id>/cancel")
     def cancel(job_id):

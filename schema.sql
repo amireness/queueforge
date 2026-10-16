@@ -21,3 +21,12 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 CREATE INDEX IF NOT EXISTS idx_jobs_ready
 ON jobs(status, available_at, priority, created_at);
+
+
+CREATE TABLE IF NOT EXISTS job_dependencies (
+    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    depends_on_id INTEGER NOT NULL REFERENCES jobs(id),
+    PRIMARY KEY (job_id, depends_on_id),
+    CHECK (job_id != depends_on_id)
+);
+CREATE INDEX IF NOT EXISTS idx_dependencies_parent ON job_dependencies(depends_on_id);

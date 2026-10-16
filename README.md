@@ -53,3 +53,12 @@ This is a learning-focused MVP, not a production-grade distributed queue. Worker
 
 ## Worker crash recovery
 Workers claim jobs with a 30-second lease. If a worker disappears, the lease eventually expires; another worker requeues the job (or marks it failed if the retry limit was reached). Recovery is checked whenever a worker polls. This is **at-least-once** processing: a task might run more than once after a crash, so real-world task handlers must be idempotent. The included tasks finish within five seconds and do not require lease renewal.
+
+## Phase 3: Job dependencies
+Submit a job with an optional `depends_on` list of already-existing job IDs:
+
+```bash
+curl -X POST http://127.0.0.1:5001/jobs -H "Content-Type: application/json" -d '{"task_type":"uppercase","payload":{"text":"hello"},"depends_on":[1]}'
+```
+
+A job waits until *every* prerequisite completes. Failed/canceled prerequisites cause dependent jobs to be marked failed, including downstream dependencies. Dependency edges are stored in `job_dependencies`, and cycle detection is provided in `add_dependency` for programs that modify the graph. The public API only allows dependencies on existing jobs at creation, which also prevents API-created cycles. Dependencies cannot be added once a job has started. All scheduling decisions remain transactional in SQLite.
