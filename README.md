@@ -62,3 +62,30 @@ curl -X POST http://127.0.0.1:5001/jobs -H "Content-Type: application/json" -d '
 ```
 
 A job waits until *every* prerequisite completes. Failed/canceled prerequisites cause dependent jobs to be marked failed, including downstream dependencies. Dependency edges are stored in `job_dependencies`, and cycle detection is provided in `add_dependency` for programs that modify the graph. The public API only allows dependencies on existing jobs at creation, which also prevents API-created cycles. Dependencies cannot be added once a job has started. All scheduling decisions remain transactional in SQLite.
+
+## Phase 4: Performance monitoring
+
+`GET /metrics` returns counts by job status, the success rate among completed and
+failed jobs, average queue wait, average final-attempt execution time, and a
+historical throughput estimate (completed jobs divided by time between first
+submission and last finished job). An empty measurement returns `null` for
+undefined averages/rates. Canceled or pending jobs are excluded from success
+rate. For retried jobs, execution time includes the final attempt only, since
+previous attempt timings are not stored. The endpoint is intended for a local
+prototype, not an authenticated production monitoring service.
+
+To see metrics while the server is running:
+
+```bash
+curl http://127.0.0.1:5001/metrics
+```
+
+### Benchmarking
+
+Run `python benchmarks/compare_workers.py` to compare processing 100 sample
+jobs with 1, 2 and 4 concurrent workers. Each run uses a fresh temporary SQLite
+database. The script reports actual measured wall-clock throughput, which may
+vary depending on OS scheduling and SQLite write contention. It uses threads to
+simulate independently competing workers; real multi-process deployments need
+separate validation. Do not interpret the synthetic benchmark as a production
+capacity guarantee.

@@ -12,10 +12,20 @@ LEASE_SECONDS = 30
 def now():
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
+class ClosingConnection(sqlite3.Connection):
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
 
 def connect(path=None):
     db_path = str(path or os.environ.get("QUEUEFORGE_DB", DEFAULT_DB))
-    conn = sqlite3.connect(db_path, timeout=10)
+    conn = sqlite3.connect(
+        db_path,
+        timeout=10,
+        factory=ClosingConnection
+    )
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 10000")

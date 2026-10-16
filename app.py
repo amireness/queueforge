@@ -4,6 +4,7 @@ from flask import Flask, jsonify, request
 
 from database import cancel_job, create_job, get_job, init_db, list_jobs, list_dependencies
 from tasks import TASKS
+from metrics import get_metrics
 
 
 def create_app(db_path=None):
@@ -17,7 +18,7 @@ def create_app(db_path=None):
 
     @app.get("/")
     def index():
-        return jsonify({"name": "QueueForge", "endpoints": ["GET /jobs", "POST /jobs", "GET /jobs/<id>", "POST /jobs/<id>/cancel"]})
+        return jsonify({"name": "QueueForge", "endpoints": ["GET /jobs", "POST /jobs", "GET /jobs/<id>", "POST /jobs/<id>/cancel", "GET /metrics"]})
 
     @app.post("/jobs")
     def submit():
@@ -44,6 +45,10 @@ def create_app(db_path=None):
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         return jsonify({"job_id": job_id, "status": "pending"}), 201
+
+    @app.get("/metrics")
+    def metrics():
+        return jsonify(get_metrics(db()))
 
     @app.get("/jobs")
     def jobs():
